@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Wordle Solver (NYT + Wordle Unlimited)
 // @namespace    http://tampermonkey.net/
-// @version      1.0
+// @version      1.1
 // @description  Wordle solver for NYT Wordle and Wordle Unlimited
 // @author       executed007
 // @match        https://www.nytimes.com/games/wordle/*
@@ -9,6 +9,10 @@
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_deleteValue
+// @grant        GM_getResourceURL
+// @resource     logo  https://raw.githubusercontent.com/executed007/wordle-autosolver/main/assets/wordle.png
+// @resource     troll https://raw.githubusercontent.com/executed007/wordle-autosolver/main/assets/troll.png
 // @connect      raw.githubusercontent.com
 // @run-at       document-idle
 // ==/UserScript==
@@ -30,28 +34,6 @@
     const POW3 = [1, 3, 9, 27, 81];
 
     const isNYT = location.hostname.includes('nytimes.com');
-
-    // Real images for the button. Put wordle.png and troll.png in an `assets`
-    // folder in your repo; they're fetched once and cached. If either is missing,
-    // the built-in SVG below is used instead.
-    const ASSET_BASE = 'https://raw.githubusercontent.com/executed007/wordle-autosolver/main/assets/';
-    const LOGO_FILE = 'wordle.png';
-    const TROLL_FILE = 'troll.png';
-
-    // Fallback button icon: 'pirate' (hat on top) or 'x' (big red X over it)
-    const ICON = 'pirate';
-    const TILE = '<rect x="6" y="16" width="52" height="46" rx="10" fill="#6aaa64"/>' +
-        '<path d="M17 30l7 22 8-14 8 14 7-22" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>';
-    const ICONS = {
-        pirate: '<svg viewBox="0 0 64 64">' + TILE +
-            '<g transform="rotate(-9 32 12)">' +
-            '<path d="M5 24Q8 5 32 3Q56 5 59 24Q46 16 32 16Q18 16 5 24Z" fill="#1a1a1b" stroke="#000" stroke-width="1.5" stroke-linejoin="round"/>' +
-            '<circle cx="32" cy="10.5" r="4.6" fill="#fff"/><rect x="29.4" y="13" width="5.2" height="3.4" rx="1" fill="#fff"/>' +
-            '<circle cx="30.2" cy="10.2" r="1.2" fill="#1a1a1b"/><circle cx="33.8" cy="10.2" r="1.2" fill="#1a1a1b"/></g></svg>',
-        x: '<svg viewBox="0 0 64 64">' + TILE +
-            '<path d="M14 18L50 60M50 18L14 60" stroke="#000" stroke-opacity=".35" stroke-width="12" stroke-linecap="round"/>' +
-            '<path d="M14 18L50 60M50 18L14 60" stroke="#e5484d" stroke-width="8" stroke-linecap="round"/></svg>',
-    };
 
     // ── State ──────────────────────────────────────────────────────────────
     let words = [];
@@ -230,30 +212,13 @@
         setTimeout(() => { submitting = false; }, LOCK_MS);
     }
 
-    // Best effort (Wordle Unlimited only): after a finished game, click a
-    // "new game / play again" style button so auto-solve can continue.
-    const NEXT_RE = /^(new game|play again|next( word| game)?|restart|continue)$/i;
-
-    function findNextButton(root, depth = 0) {
-        if (depth > 4) return null;
-        for (const el of root.querySelectorAll('*')) {
-            if ((el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') &&
-                NEXT_RE.test((el.textContent || el.getAttribute('aria-label') || '').trim())) {
-                return el;
-            }
-            if (el.shadowRoot) {
-                const f = findNextButton(el.shadowRoot, depth + 1);
-                if (f) return f;
-            }
-        }
-        return null;
-    }
-
+    // Wordle Unlimited only: click "Play again!" (it reloads the page; auto is restored in buildUI).
     function startNextGame() {
         const now = Date.now();
         if (now - lastNext < NEXT_GAME_DELAY_MS) return;
         lastNext = now;
-        const b = findNextButton(document);
+        const b = document.querySelector('game-app')?.shadowRoot
+            ?.querySelector('game-stats')?.shadowRoot?.getElementById('refresh-button');
         if (b) { b.click(); setStatus('Starting next game…'); }
     }
 
@@ -332,7 +297,6 @@
         style.textContent = `
 #ws-toggle-btn,#ws-panel,#ws-panel *{box-sizing:border-box}
 #ws-toggle-btn{position:fixed;bottom:20px;right:20px;z-index:2147483647;width:58px;height:58px;border:0;background:none;cursor:pointer;padding:0;line-height:1;filter:drop-shadow(0 4px 8px rgba(0,0,0,.45));transition:transform .15s,filter .2s}
-#ws-toggle-btn svg{width:100%;height:100%;display:block;overflow:visible}
 #ws-toggle-btn img{display:block;-webkit-user-drag:none;user-select:none}
 #ws-toggle-btn .lg{width:100%;height:100%;object-fit:contain;border-radius:12px}
 #ws-toggle-btn .tr{position:absolute;right:-12px;bottom:-10px;width:36px;height:auto;transform:rotate(8deg);filter:drop-shadow(0 2px 3px rgba(0,0,0,.5))}
@@ -374,7 +338,7 @@
         $btn = document.createElement('button');
         $btn.id = 'ws-toggle-btn';
         $btn.title = 'Wordle Solver';
-        $btn.innerHTML = ICONS[ICON] || ICONS.pirate;
+        $btn.innerHTML = `<img class="lg" src="${GM_getResourceURL('logo')}" alt=""><img class="tr" src="${GM_getResourceURL('troll')}" alt="">`;
         $btn.onclick = () => setOpen(!open);
 
         $panel = document.createElement('div');
@@ -423,39 +387,9 @@
             }
         };
 
+        const saved = GM_getValue('ws_auto', false);   // read before setKeep overwrites it
         setKeep(keep);
-        setAuto(keep && GM_getValue('ws_auto', false));   // restore after a reload
-    }
-
-    // ── Button images (fetched once, cached as data URIs) ──────────────────
-    function fetchImage(name) {
-        const key = 'ws_img_' + name;
-        const cached = GM_getValue(key);
-        if (cached) return Promise.resolve(cached);
-        return new Promise(resolve => {
-            GM_xmlhttpRequest({
-                method: 'GET',
-                url: ASSET_BASE + name,
-                responseType: 'blob',
-                onload: r => {
-                    if (r.status !== 200 || !r.response) return resolve(null);
-                    const fr = new FileReader();
-                    fr.onload = () => { GM_setValue(key, fr.result); resolve(fr.result); };
-                    fr.onerror = () => resolve(null);
-                    fr.readAsDataURL(r.response);
-                },
-                onerror: () => resolve(null),
-            });
-        });
-    }
-
-    function applyImages() {
-        Promise.all([fetchImage(LOGO_FILE), fetchImage(TROLL_FILE)]).then(([logo, troll]) => {
-            if (!logo && !troll) return;   // keep the SVG fallback
-            $btn.innerHTML =
-                (logo ? `<img class="lg" src="${logo}" alt="">` : ICONS[ICON] || ICONS.pirate) +
-                (troll ? `<img class="tr" src="${troll}" alt="">` : '');
-        });
+        setAuto(keep && saved);   // restore after a reload (Play again reloads the page)
     }
 
     // ── Word list (cached between page loads) ──────────────────────────────
@@ -486,8 +420,9 @@
 
     // ── Init ───────────────────────────────────────────────────────────────
     function init() {
+        // shortcut: frees the ~2 MB image cache v1.0 stored; delete this line after a few releases
+        GM_deleteValue('ws_img_wordle.png'); GM_deleteValue('ws_img_troll.png');
         buildUI();
-        applyImages();
         loadWords().then(list => {
             words = cand = list;
             lastSig = null;
