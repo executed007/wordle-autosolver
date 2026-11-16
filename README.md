@@ -11,7 +11,7 @@ A small userscript that solves Wordle for you. Shows the best next guess, and ca
 ## Install
 
 1. Get [Tampermonkey](https://www.tampermonkey.net/) or [Violentmonkey](https://violentmonkey.github.io/).
-2. Install the script from [Greasy Fork](https://greasyfork.org/scripts/YOUR_SCRIPT_ID) or the [raw file on GitHub](https://github.com/YOUR_USERNAME/wordle-autosolver/raw/main/wordle-solver.user.js).
+2. Install the script from [Greasy Fork](https://greasyfork.org/scripts/604608-wordle-solver-nyt-wordle-unlimited) or the [raw file on GitHub](https://github.com/executed007/wordle-autosolver/raw/main/wordle-autosolver.js).
 3. Open a Wordle page and click the button in the bottom-right corner.
 
 ## Use
